@@ -24,6 +24,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ENABLE_PETSC "Enable PETSc/SLEPc backends" ON)
+set(BLAS_BACKEND "" CACHE STRING "BLAS/LAPACK backend: MKL|OPENBLAS|ACCELERATE (empty for auto)")
+set_property(CACHE BLAS_BACKEND PROPERTY STRINGS MKL OPENBLAS ACCELERATE)
 
 # Prefer Intel MPI wrapper on Linux if available, else mpicxx
 if(NOT MPI_CXX_COMPILER)
@@ -45,14 +47,78 @@ target_compile_features(project_warnings INTERFACE cxx_std_17)
 
 add_library(project_options INTERFACE)
 
+# BLAS/LAPACK backend selection
+add_library(core_linalg INTERFACE)
+
+set(_LINALG_BACKEND_NAME "")
+set(_LINALG_BACKEND_VENDOR "")
+
+function(_try_blas_backend backend vendor)
+  set(BLA_VENDOR "${vendor}" CACHE STRING "BLAS vendor" FORCE)
+  unset(BLAS_FOUND CACHE)
+  unset(LAPACK_FOUND CACHE)
+  find_package(BLAS)
+  find_package(LAPACK)
+  if(BLAS_FOUND AND LAPACK_FOUND)
+    set(_LINALG_BACKEND_NAME "${backend}" PARENT_SCOPE)
+    set(_LINALG_BACKEND_VENDOR "${vendor}" PARENT_SCOPE)
+  endif()
+endfunction()
+
+if(BLAS_BACKEND)
+  string(TOUPPER "${BLAS_BACKEND}" _BLAS_BACKEND_UPPER)
+  if(_BLAS_BACKEND_UPPER STREQUAL "MKL")
+    set(BLA_VENDOR "Intel10_64lp" CACHE STRING "BLAS vendor" FORCE)
+    set(_LINALG_BACKEND_NAME "MKL")
+  elseif(_BLAS_BACKEND_UPPER STREQUAL "OPENBLAS")
+    set(BLA_VENDOR "OpenBLAS" CACHE STRING "BLAS vendor" FORCE)
+    set(_LINALG_BACKEND_NAME "OpenBLAS")
+  elseif(_BLAS_BACKEND_UPPER STREQUAL "ACCELERATE")
+    set(BLA_VENDOR "Apple" CACHE STRING "BLAS vendor" FORCE)
+    set(_LINALG_BACKEND_NAME "Accelerate")
+  else()
+    message(FATAL_ERROR "Unknown BLAS_BACKEND='${BLAS_BACKEND}'. Use MKL, OPENBLAS, or ACCELERATE.")
+  endif()
+
+  find_package(BLAS REQUIRED)
+  find_package(LAPACK REQUIRED)
+else()
+  if(APPLE)
+    _try_blas_backend("Accelerate" "Apple")
+    if(NOT _LINALG_BACKEND_NAME)
+      _try_blas_backend("OpenBLAS" "OpenBLAS")
+    endif()
+  else()
+    _try_blas_backend("MKL" "Intel10_64lp")
+    if(NOT _LINALG_BACKEND_NAME)
+      _try_blas_backend("OpenBLAS" "OpenBLAS")
+    endif()
+  endif()
+
+  if(NOT _LINALG_BACKEND_NAME)
+    message(FATAL_ERROR "No suitable BLAS/LAPACK backend found. Set -DBLAS_BACKEND=MKL|OPENBLAS|ACCELERATE.")
+  endif()
+endif()
+
+message(STATUS "BLAS/LAPACK backend: ${_LINALG_BACKEND_NAME}")
+target_link_libraries(core_linalg INTERFACE BLAS::BLAS LAPACK::LAPACK)
+target_compile_definitions(core_linalg INTERFACE
+  LINALG_BACKEND_NAME="${_LINALG_BACKEND_NAME}"
+  $<$<STREQUAL:${_LINALG_BACKEND_NAME},MKL>:LINALG_BACKEND_MKL=1>
+  $<$<STREQUAL:${_LINALG_BACKEND_NAME},OpenBLAS>:LINALG_BACKEND_OPENBLAS=1>
+  $<$<STREQUAL:${_LINALG_BACKEND_NAME},Accelerate>:LINALG_BACKEND_ACCELERATE=1>
+)
+
 # Common include path
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(bench_dense_matrix apps/bench_dense_matrix.cpp)
 add_executable(bench_dense_operator apps/bench_dense_operator.cpp)
+add_executable(blas_sanity apps/blas_sanity.cpp)
 
-target_link_libraries(bench_dense_matrix PRIVATE MPI::MPI_CXX project_options project_warnings)
-target_link_libraries(bench_dense_operator PRIVATE MPI::MPI_CXX project_options project_warnings)
+target_link_libraries(bench_dense_matrix PRIVATE MPI::MPI_CXX core_linalg project_options project_warnings)
+target_link_libraries(bench_dense_operator PRIVATE MPI::MPI_CXX core_linalg project_options project_warnings)
+target_link_libraries(blas_sanity PRIVATE core_linalg project_options project_warnings)
 
 target_compile_definitions(bench_dense_matrix PRIVATE PROJECT_BACKEND_DENSE=1)
 target_compile_definitions(bench_dense_operator PRIVATE PROJECT_BACKEND_DENSE=1)
