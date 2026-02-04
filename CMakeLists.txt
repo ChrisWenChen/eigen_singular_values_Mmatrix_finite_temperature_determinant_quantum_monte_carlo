@@ -47,6 +47,15 @@ target_compile_features(project_warnings INTERFACE cxx_std_17)
 
 add_library(project_options INTERFACE)
 
+add_library(core STATIC
+  src/core/model_params.cpp
+  src/core/hs_field.cpp
+  src/core/sparse_csr.cpp
+  src/core/kinetic_operator.cpp
+)
+target_link_libraries(core PUBLIC project_options project_warnings)
+target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # BLAS/LAPACK backend selection
 add_library(core_linalg INTERFACE)
 
@@ -109,16 +118,13 @@ target_compile_definitions(core_linalg INTERFACE
   $<$<STREQUAL:${_LINALG_BACKEND_NAME},Accelerate>:LINALG_BACKEND_ACCELERATE=1>
 )
 
-# Common include path
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-
 add_executable(bench_dense_matrix apps/bench_dense_matrix.cpp)
 add_executable(bench_dense_operator apps/bench_dense_operator.cpp)
 add_executable(blas_sanity apps/blas_sanity.cpp)
 
-target_link_libraries(bench_dense_matrix PRIVATE MPI::MPI_CXX core_linalg project_options project_warnings)
-target_link_libraries(bench_dense_operator PRIVATE MPI::MPI_CXX core_linalg project_options project_warnings)
-target_link_libraries(blas_sanity PRIVATE core_linalg project_options project_warnings)
+target_link_libraries(bench_dense_matrix PRIVATE MPI::MPI_CXX core core_linalg project_options project_warnings)
+target_link_libraries(bench_dense_operator PRIVATE MPI::MPI_CXX core core_linalg project_options project_warnings)
+target_link_libraries(blas_sanity PRIVATE core core_linalg project_options project_warnings)
 
 target_compile_definitions(bench_dense_matrix PRIVATE PROJECT_BACKEND_DENSE=1)
 target_compile_definitions(bench_dense_operator PRIVATE PROJECT_BACKEND_DENSE=1)
@@ -152,9 +158,14 @@ if(ENABLE_PETSC)
   add_executable(bench_petsc_matrix apps/bench_petsc_matrix.cpp)
   add_executable(bench_petsc_shell apps/bench_petsc_shell.cpp)
 
-  target_link_libraries(bench_petsc_matrix PRIVATE MPI::MPI_CXX PkgConfig::PETSC PkgConfig::SLEPC project_options project_warnings)
-  target_link_libraries(bench_petsc_shell PRIVATE MPI::MPI_CXX PkgConfig::PETSC PkgConfig::SLEPC project_options project_warnings)
+  target_link_libraries(bench_petsc_matrix PRIVATE MPI::MPI_CXX core PkgConfig::PETSC PkgConfig::SLEPC project_options project_warnings)
+  target_link_libraries(bench_petsc_shell PRIVATE MPI::MPI_CXX core PkgConfig::PETSC PkgConfig::SLEPC project_options project_warnings)
 
   target_compile_definitions(bench_petsc_matrix PRIVATE PROJECT_BACKEND_PETSC=1)
   target_compile_definitions(bench_petsc_shell PRIVATE PROJECT_BACKEND_PETSC=1)
 endif()
+
+enable_testing()
+add_executable(test_hsfield tests/test_hsfield.cpp)
+target_link_libraries(test_hsfield PRIVATE core project_options project_warnings)
+add_test(NAME test_hsfield COMMAND test_hsfield)
