@@ -1,0 +1,28 @@
+# Build artifacts
+/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+*.ninja
+.ninja_deps
+.ninja_log
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+.DS_Store
+
+# Generated binaries
+bench_dense_matrix
+bench_dense_operator
+bench_petsc_matrix
+bench_petsc_shell
+
+# Misc
+*.out
+*.log
